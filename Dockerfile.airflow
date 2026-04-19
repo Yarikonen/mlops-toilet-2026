@@ -1,0 +1,19 @@
+FROM apache/airflow:2.8.0
+
+# Install PostgreSQL client and JDBC driver dependencies
+USER root
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+USER airflow
+COPY airflow/requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt
+
+# Download PostgreSQL JDBC driver for Spark
+USER root
+RUN mkdir -p /opt/spark/jars && \
+    wget -q https://jdbc.postgresql.org/download/postgresql-42.6.0.jar -O /opt/spark/jars/postgresql-42.6.0.jar
+
+USER airflow
