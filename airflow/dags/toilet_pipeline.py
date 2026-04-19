@@ -1,8 +1,6 @@
 from airflow import DAG
-from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from airflow.providers.http.operators.http import SimpleHttpOperator
 
 from datetime import datetime
 import requests
@@ -35,30 +33,6 @@ def ingest_data():
     df = pd.DataFrame(all_rows)
     df.to_csv("/opt/data/toilets.csv", index=False)
 
-
-def submit_spark_job():
-    import subprocess
-    import time
-    
-    cmd = [
-        "docker", "exec", "mlops-spark-master",
-        "spark-submit",
-        "--master", "spark://spark-master:7077",
-        "--conf", "spark.executor.memory=1g",
-        "--conf", "spark.driver.memory=1g",
-        "--jars", "/opt/bitnami/spark/jars/postgresql-42.6.0.jar",
-        "/opt/spark_jobs/job.py"
-    ]
-    
-    print(f"Command: {' '.join(cmd)}")
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode == 0:
-        print(result.stdout)
-    else:
-        print(result.stderr)
-        raise Exception(f"Spark job failed with code {result.returncode}")
 with DAG(
     dag_id="toilet_lr1_pipeline",
     start_date=datetime(2024, 1, 1),
@@ -73,17 +47,17 @@ with DAG(
 
     spark_job = SparkSubmitOperator(
         task_id="run_spark_job",
-        application="/opt/airflow/jobs/toilet_job.py", 
-        conn_id="spark_default2",
+        application="/opt/spark_jobs/job.py",
+        conn_id="spark_default",
 
-        conf={
-            "spark.master": "spark://spark-master:7077",
-        },
-
-        packages="org.postgresql:postgresql:42.7.3",
+        jars="/opt/spark/jars/postgresql-42.6.0.jar",
 
         executor_memory="2g",
         driver_memory="1g",
+
+        conf={
+            "spark.hadoop.fs.permissions.umask-mode": "000",
+        },
 
         verbose=True,
     )

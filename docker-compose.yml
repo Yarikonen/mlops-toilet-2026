@@ -28,14 +28,19 @@ services:
   # AIRFLOW INIT
   # =====================
   airflow-init:
-    image: apache/airflow:2.8.0
+    image: mlops-airflow:2.8.0
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    user: root
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW_CONN_SPARK_DEFAULT: "spark://spark%3A%2F%2Fspark-master:7077"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
-      - ./data:/opt/data
+      - mlops_data:/opt/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,21 +50,27 @@ services:
     command:
       - -c
       - |
-        pip install requests pandas psycopg2-binary
-        airflow db init
-        airflow users create \
+        mkdir -p /opt/data/processed
+        chown -R 50000:0 /opt/data
+        chmod -R g+rwX /opt/data
+        chmod -R a+rwx /opt/data/processed
+        su -s /bin/bash airflow -c "airflow db init"
+        su -s /bin/bash airflow -c "airflow users create \
           --username admin \
           --firstname Admin \
           --lastname User \
           --role Admin \
           --email admin@example.com \
-          --password admin
+          --password admin || true"
 
   # =====================
   # AIRFLOW WEBSERVER
   # =====================
   airflow-webserver:
-    image: apache/airflow:2.8.0
+    image: mlops-airflow:2.8.0
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: mlops-airflow-webserver
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -67,12 +78,12 @@ services:
       AIRFLOW__CORE__FERNET_KEY: 'ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg='
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      _PIP_ADDITIONAL_REQUIREMENTS: requests pandas psycopg2-binary apache-airflow-providers-apache-spark  
+      AIRFLOW_CONN_SPARK_DEFAULT: "spark://spark%3A%2F%2Fspark-master:7077"
 
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
-      - ./data:/opt/data
+      - mlops_data:/opt/data
       - ./spark_jobs:/opt/spark_jobs
     ports:
       - "8080:8080"
@@ -81,22 +92,16 @@ services:
         condition: service_completed_successfully
     networks:
       - mlops_net
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        pip install \
-          apache-airflow-providers-apache-spark \
-          requests \
-          pandas \
-          psycopg2-binary
-        airflow webserver
+    command: webserver
 
   # =====================
   # AIRFLOW SCHEDULER
   # =====================
   airflow-scheduler:
-    image: apache/airflow:2.8.0
+    image: mlops-airflow:2.8.0
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: mlops-airflow-scheduler
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -104,119 +109,77 @@ services:
       AIRFLOW__CORE__FERNET_KEY: 'ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg='
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      _PIP_ADDITIONAL_REQUIREMENTS: requests pandas psycopg2-binary apache-airflow-providers-apache-spark  
+      AIRFLOW_CONN_SPARK_DEFAULT: "spark://spark%3A%2F%2Fspark-master:7077"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
-      - ./data:/opt/data
+      - mlops_data:/opt/data
       - ./spark_jobs:/opt/spark_jobs
     depends_on:
       airflow-init:
         condition: service_completed_successfully
     networks:
       - mlops_net
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        pip install \
-          apache-airflow-providers-apache-spark \
-          requests \
-          pandas \
-          psycopg2-binary
-        airflow scheduler
+    command: scheduler
 
  
   spark-master:
-    image: docker-proxy.artifactory.tcsbank.ru/bitnami/spark:3.5
+    image: apache/spark:3.5.0
     container_name: mlops-spark-master
-    user: root  # 👈 Важно для установки драйвера
     environment:
-      - SPARK_MODE=master
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
-      - SPARK_MASTER_HOST=spark-master
     volumes:
       - ./spark_jobs:/opt/spark_jobs
-      - ./data:/opt/data
+      - mlops_data:/opt/data
     ports:
-      - "8081:8084"
+      - "8081:8080"
       - "7077:7077"
     networks:
-      - mlops_net
+      mlops_net:
+        aliases:
+          - spark-master
     depends_on:
       - postgres
-    entrypoint: /bin/bash
     command:
-      - -c
-      - |
-        # Устанавливаем wget если его нет
-        apt-get update && apt-get install -y wget || true
-        
-        # Скачиваем PostgreSQL JDBC драйвер
-        echo "📥 Downloading PostgreSQL JDBC driver..."
-        wget -q https://jdbc.postgresql.org/download/postgresql-42.6.0.jar \
-          -O /opt/bitnami/spark/jars/postgresql-42.6.0.jar
-        
-        # Проверяем установку
-        if [ -f /opt/bitnami/spark/jars/postgresql-42.6.0.jar ]; then
-          echo "✅ JDBC driver installed successfully"
-          ls -lh /opt/bitnami/spark/jars/postgresql-42.6.0.jar
-        else
-          echo "❌ Failed to install JDBC driver"
-          exit 1
-        fi
-        
-        # Устанавливаем Python зависимости
-        pip install requests pandas psycopg2-binary
-        
-        # Запускаем Spark Master
-        /opt/bitnami/scripts/spark/entrypoint.sh /opt/bitnami/scripts/spark/run.sh
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
 
   # =====================
   # SPARK WORKER (С АВТОМАТИЧЕСКОЙ УСТАНОВКОЙ JDBC)
   # =====================
   spark-worker:
-    image: docker-proxy.artifactory.tcsbank.ru/bitnami/spark:3.5
+    image: apache/spark:3.5.0
     container_name: mlops-spark-worker
-    user: root  
+    user: root
     environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-      - SPARK_WORKER_MEMORY=2G
-      - SPARK_WORKER_CORES=2
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     volumes:
       - ./spark_jobs:/opt/spark_jobs
-      - ./data:/opt/data
+      - mlops_data:/opt/data
     networks:
       - mlops_net
     depends_on:
       - spark-master
     entrypoint: /bin/bash
     command:
-      - -c
+      - -lc
       - |
-        apt-get update && apt-get install -y wget || true
-        
-        wget -q https://jdbc.postgresql.org/download/postgresql-42.6.0.jar \
-          -O /opt/bitnami/spark/jars/postgresql-42.6.0.jar
-        
-        if [ -f /opt/bitnami/spark/jars/postgresql-42.6.0.jar ]; then
-          echo "JDBC driver installed successfully"
-        else
-          echo "Failed to install JDBC driver"
-          exit 1
-        fi
-        
-        pip install requests pandas psycopg2-binary
-        
-        /opt/bitnami/scripts/spark/entrypoint.sh /opt/bitnami/scripts/spark/run.sh
+        umask 000
+        mkdir -p /opt/data/processed
+        chmod -R a+rwx /opt/data/processed
+        exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker --memory 2g --cores 2 spark://spark-master:7077
 
 networks:
   mlops_net:
@@ -224,3 +187,4 @@ networks:
 
 volumes:
   postgres_data:
+  mlops_data:

@@ -1,15 +1,23 @@
 FROM apache/airflow:2.8.0
 
-# Install PostgreSQL client and JDBC driver dependencies
+# Install OS dependencies (Java is required for spark-submit)
 USER root
 RUN apt-get update && apt-get install -y \
+    openjdk-17-jre-headless \
+    wget \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="$JAVA_HOME/bin:${PATH}"
 
 # Install Python dependencies
 USER airflow
 COPY airflow/requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
+
+# Expose spark-submit from PySpark on PATH for SparkSubmitOperator
+ENV PATH="/home/airflow/.local/lib/python3.8/site-packages/pyspark/bin:${PATH}"
 
 # Download PostgreSQL JDBC driver for Spark
 USER root

@@ -1,10 +1,12 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import floor, mean, stddev, col, when
+from pyspark.sql.functions import floor, mean, stddev, col, when, count
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
 import os
 
 spark = SparkSession.builder \
     .appName("Toilet_LR1") \
+    .config("spark.hadoop.fs.permissions.umask-mode", "000") \
+    .master("spark://spark-master:7077") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
