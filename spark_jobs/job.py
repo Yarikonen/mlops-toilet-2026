@@ -29,7 +29,7 @@ JDBC_PROPERTIES = {
     "driver": "org.postgresql.Driver"
 }
 
-# Grid size 
+
 GRID_SIZE = 0.01
 
 
@@ -67,13 +67,10 @@ print(f"Total records loaded: {df.count()}")
 
 print("Cleaning data...")
 
-# Удаление записей с пустыми координатами
 df = df.dropna(subset=["Latitude", "Longitude"])
 
-# Удаление дубликатов
 df = df.dropDuplicates()
 
-# Фильтрация некорректных координат
 df = df.filter(
     (col("Latitude").between(-90, 90)) & 
     (col("Longitude").between(-180, 180))
@@ -83,15 +80,13 @@ print(f"Records after cleaning: {df.count()}")
 
 
 
-# Создание пространственных бинов (grid)
+
 df = df.withColumn("lat_bin", floor(col("Latitude") / GRID_SIZE)) \
        .withColumn("lon_bin", floor(col("Longitude") / GRID_SIZE))
 
-# Доступность для людей с ограниченными возможностями
 df = df.withColumn("is_accessible", 
     when(col("Accessible").isin(["Yes", "yes", "YES", "True", "true"]), 1).otherwise(0))
 
-# Пол (унисекс, мужской, женский)
 df = df.withColumn("gender_type",
     when(col("Gender").contains("Unisex"), "unisex")
     .when(col("Gender").contains("Male"), "male")
@@ -167,7 +162,6 @@ try:
         properties=JDBC_PROPERTIES
     )
 
-    # Загрузка suburb_stats
     suburb_stats.write.jdbc(
         url=JDBC_URL,
         table="toilets_suburb_stats",

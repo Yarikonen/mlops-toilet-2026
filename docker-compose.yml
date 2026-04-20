@@ -1,9 +1,7 @@
 version: '3.8'
 
 services:
-  # =====================
-  # POSTGRES
-  # =====================
+
   postgres:
     image: postgres:13
     container_name: mlops-postgres
@@ -24,9 +22,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # =====================
-  # AIRFLOW INIT
-  # =====================
+
   airflow-init:
     image: mlops-airflow:2.8.0
     build:
@@ -63,9 +59,7 @@ services:
           --email admin@example.com \
           --password admin || true"
 
-  # =====================
-  # AIRFLOW WEBSERVER
-  # =====================
+
   airflow-webserver:
     image: mlops-airflow:2.8.0
     build:
@@ -94,9 +88,7 @@ services:
       - mlops_net
     command: webserver
 
-  # =====================
-  # AIRFLOW SCHEDULER
-  # =====================
+ 
   airflow-scheduler:
     image: mlops-airflow:2.8.0
     build:
