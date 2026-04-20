@@ -145,9 +145,7 @@ services:
       - --webui-port
       - "8080"
 
-  # =====================
-  # SPARK WORKER (С АВТОМАТИЧЕСКОЙ УСТАНОВКОЙ JDBC)
-  # =====================
+
   spark-worker:
     image: apache/spark:3.5.0
     container_name: mlops-spark-worker
