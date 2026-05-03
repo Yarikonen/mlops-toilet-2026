@@ -57,4 +57,13 @@ temp/
 # History
 .history/
 
+# MLflow
+mlruns/
+mlflow.db
+mlflow.db-shm
+mlflow.db-wal
+
+# Reports / artifacts
+reports/
+
 toiletmapexport_260401_074429.csv

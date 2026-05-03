@@ -11,7 +11,7 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./airflow/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     ports:
       - "5432:5432"
     networks:
@@ -33,10 +33,12 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW_CONN_SPARK_DEFAULT: "spark://spark%3A%2F%2Fspark-master:7077"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - mlops_data:/opt/data
+      - ./ml_models:/opt/ml_models:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,12 +75,14 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW_CONN_SPARK_DEFAULT: "spark://spark%3A%2F%2Fspark-master:7077"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
 
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - mlops_data:/opt/data
       - ./spark_jobs:/opt/spark_jobs
+      - ./ml_models:/opt/ml_models:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -102,11 +106,13 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW_CONN_SPARK_DEFAULT: "spark://spark%3A%2F%2Fspark-master:7077"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - mlops_data:/opt/data
       - ./spark_jobs:/opt/spark_jobs
+      - ./ml_models:/opt/ml_models:ro
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -170,6 +176,22 @@ services:
         mkdir -p /opt/data/processed
         chmod -R a+rwx /opt/data/processed
         exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker --memory 2g --cores 2 spark://spark-master:7077
+
+
+  mlflow:
+    image: python:3.11-slim
+    container_name: mlops-mlflow
+    environment:
+      MLFLOW_BACKEND_STORE_URI: "sqlite:////opt/data/mlflow.db"
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: "/opt/data/mlruns"
+    volumes:
+      - mlops_data:/opt/data
+    ports:
+      - "5000:5000"
+    networks:
+      - mlops_net
+    command: >
+      sh -c "pip install --no-cache-dir mlflow==2.16.0 && mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri $MLFLOW_BACKEND_STORE_URI --default-artifact-root $MLFLOW_DEFAULT_ARTIFACT_ROOT"
 
 networks:
   mlops_net:

@@ -27,6 +27,33 @@
 docker-compose up -d --build
 ```
 
+## Lab 2: обучение модели (MLflow)
+
+Обучение модели реализовано в виде модулей в `src/toilet_ml` (не блокноты) и трекается в MLflow (`mlflow.db`, папка `mlruns/`).
+
+Важно: базовый образ Airflow в этом проекте использует Python 3.8, а пакет обучения в `pyproject.toml` требует Python 3.10+ (CatBoost/Sklearn). Поэтому обучение запускается отдельным контейнером `trainer`, который читает данные из общего volume `/opt/data` (туда их кладёт шаг ingest в Airflow).
+
+### Запуск обучения после прогонки пайплайна
+
+1) Сначала прогоните DAG `toilet_lr1_pipeline` (он сохранит `/opt/data/toilets.csv`).
+
+2) Запустите эксперименты Lab2:
+
+```bash
+docker-compose run --rm trainer
+```
+
+Можно запускать отдельные гипотезы:
+
+```bash
+docker-compose run --rm trainer --run baseline
+docker-compose run --rm trainer --run h1_catboost
+docker-compose run --rm trainer --run h2_geo_bins
+docker-compose run --rm trainer --run h3_group_split_threshold
+```
+
+Артефакты (графики/метрики) пишутся в `mlruns/` и `reports/`.
+
 ### 2. Инициализация Airflow
 
 ```bash
@@ -282,6 +309,66 @@ docker-compose logs airflow-scheduler
 # Проверить синтаксис DAG
 docker-compose exec airflow-webserver python -m py_compile /opt/airflow/dags/toilet_incremental_pipeline.py
 ```
+
+---
+
+## Лабораторная работа 2 (обучение модели + MLflow)
+
+Цель: построить baseline и 3 эксперимента (гипотезы) для бинарной классификации `Accessible` по табличным признакам из `data/toilets.csv`.
+
+### Что реализовано
+
+- **Baseline**: `LogisticRegression` + препроцессинг (числовые/категориальные/булевы признаки)
+- **Hypothesis 1**: `CatBoostClassifier` (с early-stopping и learning curve по итерациям)
+- **Hypothesis 2**: geo-feature `grid_cell` (биннинг координат по сетке `grid_size`)
+- **Hypothesis 3**: честная валидация (group split по `State`) + `class_weight=balanced` + подбор порога по F1
+
+Каждый запуск логирует в MLflow:
+- идентификатор данных (MD5 файла)
+- параметры/гиперпараметры
+- метрики (ROC-AUC, PR-AUC, F1, precision, recall, accuracy)
+- артефакты: ROC/PR кривые, confusion matrix, learning curves
+
+### Установка зависимостей (Poetry)
+
+1) Установить Poetry (любой способ, например через pipx):
+
+```bash
+pipx install poetry
+```
+
+2) Установить зависимости проекта:
+
+```bash
+poetry install
+```
+
+### Запуск экспериментов
+
+Запустить baseline + 3 гипотезы:
+
+```bash
+poetry run toilet-ml --run all
+```
+
+Запустить один конкретный эксперимент:
+
+```bash
+poetry run toilet-ml --run baseline
+poetry run toilet-ml --run h1_catboost
+poetry run toilet-ml --run h2_geo_bins
+poetry run toilet-ml --run h3_group_split_threshold
+```
+
+Артефакты сохраняются в `reports/<run_name>/`, а трекинг — в `mlflow.db` (SQLite).
+
+### Просмотр MLflow UI
+
+```bash
+poetry run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
+```
+
+Открыть: http://localhost:5000
 
 ## License
 

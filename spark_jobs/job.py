@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import floor, mean, stddev, col, when, count
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
+from pyspark.sql.functions import floor, mean, stddev, col, when, count, lit, lower, coalesce
+from pyspark.sql.types import DoubleType
 import os
 
 spark = SparkSession.builder \
@@ -33,30 +33,41 @@ JDBC_PROPERTIES = {
 GRID_SIZE = 0.01
 
 
-schema = StructType([
-    StructField("_id", StringType(), True),
-    StructField("Latitude", DoubleType(), True),
-    StructField("Longitude", DoubleType(), True),
-    StructField("Name", StringType(), True),
-    StructField("Address", StringType(), True),
-    StructField("Suburb", StringType(), True),
-    StructField("Postcode", StringType(), True),
-    StructField("Group", StringType(), True),
-    StructField("Category", StringType(), True),
-    StructField("Accessible", StringType(), True),
-    StructField("ChangingPlace", StringType(), True),
-    StructField("Gender", StringType(), True),
-])
+def col_or_null(frame, name: str):
+    return col(name) if name in frame.columns else lit(None)
 
-
+def is_true(c):
+    return lower(c.cast("string")).isin(["true", "yes", "1"])
 
 try:
-    df = spark.read.csv(
-        RAW_FILE,
-        header=True,
-        schema=schema,
-        inferSchema=False
+    raw = spark.read.csv(RAW_FILE, header=True, inferSchema=False)
+
+    gender_from_flags = (
+        when(is_true(col_or_null(raw, "Unisex")), lit("Unisex"))
+        .when(is_true(col_or_null(raw, "AllGender")), lit("AllGender"))
+        .when(is_true(col_or_null(raw, "Male")) & is_true(col_or_null(raw, "Female")), lit("Male/Female"))
+        .when(is_true(col_or_null(raw, "Male")), lit("Male"))
+        .when(is_true(col_or_null(raw, "Female")), lit("Female"))
+        .otherwise(lit(None))
     )
+
+    df = raw.select(
+        col_or_null(raw, "_id").cast("string").alias("_id"),
+        col_or_null(raw, "Latitude").cast(DoubleType()).alias("Latitude"),
+        col_or_null(raw, "Longitude").cast(DoubleType()).alias("Longitude"),
+        col_or_null(raw, "Name").cast("string").alias("Name"),
+        coalesce(col_or_null(raw, "Address"), col_or_null(raw, "Address1")).cast("string").alias("Address"),
+        coalesce(col_or_null(raw, "Suburb"), col_or_null(raw, "Town")).cast("string").alias("Suburb"),
+        col_or_null(raw, "Postcode").cast("string").alias("Postcode"),
+        coalesce(col_or_null(raw, "Group"), col_or_null(raw, "State")).cast("string").alias("Group"),
+        coalesce(col_or_null(raw, "Category"), col_or_null(raw, "FacilityType")).cast("string").alias("Category"),
+        col_or_null(raw, "Accessible").cast("string").alias("Accessible"),
+        coalesce(col_or_null(raw, "ChangingPlace"), col_or_null(raw, "ChangingPlaces")).cast("string").alias(
+            "ChangingPlace"
+        ),
+        coalesce(col_or_null(raw, "Gender"), gender_from_flags).cast("string").alias("Gender"),
+    )
+
     print("Loaded data from local file")
 except Exception as e:
     print(f"Error loading data: {e}")

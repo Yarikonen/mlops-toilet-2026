@@ -1,4 +1,4 @@
-FROM apache/airflow:2.8.0
+FROM apache/airflow:2.8.0-python3.10
 
 USER root
 RUN apt-get update && apt-get install -y \
@@ -14,7 +14,7 @@ USER airflow
 COPY airflow/requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
 
-ENV PATH="/home/airflow/.local/lib/python3.8/site-packages/pyspark/bin:${PATH}"
+ENV PATH="/home/airflow/.local/lib/python3.10/site-packages/pyspark/bin:${PATH}"
 
 USER root
 RUN mkdir -p /opt/spark/jars && \
