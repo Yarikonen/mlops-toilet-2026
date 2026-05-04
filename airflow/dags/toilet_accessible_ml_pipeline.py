@@ -32,10 +32,36 @@ def _train_xgb(**context):
     _ensure_imports()
     from ml_models.train_accessible_xgb import train_accessible_xgb_model
 
-    conf = context["dag_run"].conf or {}
+    dag_params = context.get("params", {})
+    run_conf = (context.get("dag_run") and context["dag_run"].conf) or {}
+    config = {**dag_params, **run_conf}
 
+    # collect possible xgboost hyperparams from config
+    hp_keys = (
+        "n_estimators",
+        "max_depth",
+        "learning_rate",
+        "subsample",
+        "colsample_bytree",
+        "booster",
+        "rate_drop",
+        "skip_drop",
+        "random_state",
+    )
+    hyperparams: dict = {}
+    for k in hp_keys:
+        if k in config:
+            hyperparams[k] = config[k]
 
-    run_id, _ = train_accessible_xgb_model(experiment_name="toilet_accessible_airflow", use_parquet=False)
+    seed = int(config.get("seed", 42))
+    use_parquet = bool(config.get("use_parquet", False))
+
+    run_id, _ = train_accessible_xgb_model(
+        experiment_name="toilet_accessible_airflow",
+        use_parquet=use_parquet,
+        seed=seed,
+        hyperparams=hyperparams or None,
+    )
     return run_id
 
 
@@ -55,11 +81,34 @@ def _predict_xgb(**context):
 
 def _train_nn(**context):
     _ensure_imports()
-    epochs = context["dag_run"].conf.get("epochs", 20)
+    dag_params = context.get("params", {})
+    run_conf = (context.get("dag_run") and context["dag_run"].conf) or {}
+    config = {**dag_params, **run_conf}
+
+    epochs = int(config.get("epochs", 30))
+    batch_size = int(config.get("batch_size", 256))
+    lr = float(config.get("lr", 1e-3))
+    weight_decay = float(config.get("weight_decay", 0.0))
+    hidden_dim = int(config.get("hidden_dim", 64))
+    num_hidden_layers = int(config.get("num_hidden_layers", 2))
+    dropout = float(config.get("dropout", 0.1))
+    seed = int(config.get("seed", 42))
+    use_parquet = bool(config.get("use_parquet", False))
 
     from ml_models.train_accessible_nn import train_accessible_nn_model
 
-    run_id, _ = train_accessible_nn_model(experiment_name="toilet_accessible_airflow", use_parquet=False, epochs=epochs)
+    run_id, _ = train_accessible_nn_model(
+        experiment_name="toilet_accessible_airflow",
+        use_parquet=use_parquet,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        weight_decay=weight_decay,
+        hidden_dim=hidden_dim,
+        num_hidden_layers=num_hidden_layers,
+        dropout=dropout,
+        seed=seed,
+    )
     return run_id
 
 
@@ -77,6 +126,25 @@ with DAG(
     catchup=False,
     default_args={"retries": 1, "retry_delay": timedelta(minutes=5)},
     doc_md=__doc__,
+    params={
+        "epochs": 30,
+        "batch_size": 256,
+        "lr": 1e-3,
+        "weight_decay": 0.0,
+        "hidden_dim": 64,
+        "num_hidden_layers": 2,
+        "dropout": 0.1,
+        "use_parquet": False,
+        "seed": 42,
+        # xgb defaults (can be overridden)
+        "n_estimators": 200,
+        "max_depth": 5,
+        "learning_rate": 0.1,
+        "subsample": 0.9,
+        "colsample_bytree": 0.9,
+        # hype override can be provided as dict under `hype_hyperparams`
+        "hype_hyperparams": None,
+    },
 ) as dag:
     extract_accessible_features = SparkSubmitOperator(
         task_id="extract_accessible_features",
@@ -101,6 +169,16 @@ with DAG(
         python_callable=_predict_xgb,
     )
 
+    train_accessible_hype = PythonOperator(
+        task_id="train_accessible_hype",
+        python_callable=_train_hype,
+    )
+
+    predict_accessible_hype = PythonOperator(
+        task_id="predict_accessible_hype",
+        python_callable=_predict_hype,
+    )
+
     train_accessible_nn = PythonOperator(
         task_id="train_accessible_nn",
         python_callable=_train_nn,
@@ -120,6 +198,8 @@ with DAG(
         extract_accessible_features
         >> train_accessible_xgb
         >> predict_accessible_xgb
+        >> train_accessible_hype
+        >> predict_accessible_hype
         >> train_accessible_nn
         >> predict_accessible_nn
         >> notify

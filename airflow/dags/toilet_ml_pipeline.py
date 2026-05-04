@@ -34,12 +34,24 @@ def _train(**context) -> None:
 
     config = {**dag_params, **run_conf}
 
-    epochs = config.get("epochs", 20)
+    # Gather NN hyperparameters from DAG params and run config
+    epochs = int(config.get("epochs", 20))
+    batch_size = int(config.get("batch_size", 128))
+    lr = float(config.get("lr", 1e-3))
+    hidden_dim = int(config.get("hidden_dim", 64))
+    num_hidden_layers = int(config.get("num_hidden_layers", 2))
+    use_parquet = bool(config.get("use_parquet", False))
+    seed = int(config.get("seed", 42))
 
     train_nn_model(
         experiment_name="toilet_location_airflow",
-        use_parquet=False,
+        use_parquet=use_parquet,
         epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        hidden_dim=hidden_dim,
+        num_hidden_layers=num_hidden_layers,
+        seed=seed,
     )
 
 
@@ -65,7 +77,15 @@ with DAG(
     catchup=False,
     default_args={"retries": 1, "retry_delay": timedelta(minutes=5)},
     doc_md=__doc__,
-    params={"epochs": 20},
+    params={
+        "epochs": 20,
+        "batch_size": 128,
+        "lr": 1e-3,
+        "hidden_dim": 64,
+        "num_hidden_layers": 2,
+        "use_parquet": False,
+        "seed": 42,
+    },
 ) as dag:
     extract_features = SparkSubmitOperator(
         task_id="extract_features",
